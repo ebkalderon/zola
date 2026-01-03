@@ -10,7 +10,9 @@ use std::collections::{HashMap, HashSet};
 use std::net::IpAddr;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, RwLock};
+use std::time::Instant;
 
+use libs::globset::Glob;
 use libs::once_cell::sync::Lazy;
 use libs::rayon::prelude::*;
 use libs::tera::{Context, Tera};
@@ -20,7 +22,6 @@ use config::{get_config, Config, IndexFormat};
 use content::{Library, Page, Paginator, Section, Taxonomy};
 use errors::{anyhow, bail, Result};
 use libs::relative_path::RelativePathBuf;
-use std::time::Instant;
 use templates::{load_tera, render_redirect_template};
 use utils::fs::{
     clean_site_output_folder, copy_directory, copy_file_if_needed, create_directory, create_file,
@@ -742,13 +743,13 @@ impl Site {
         if let Some(ref theme) = self.config.theme {
             let theme_path = self.base_path.join("themes").join(theme);
             if theme_path.join("sass").exists() {
-                sass::compile_sass(&theme_path, &self.output_path)?;
+                self.render_sass(&theme_path)?;
                 start = log_time(start, "Compiled theme Sass");
             }
         }
 
         if self.config.compile_sass {
-            sass::compile_sass(&self.base_path, &self.output_path)?;
+            self.render_sass(&self.base_path)?;
             start = log_time(start, "Compiled own Sass");
         }
 
@@ -824,6 +825,32 @@ impl Site {
                 create_file(&p, content)?;
             }
         }
+
+        Ok(())
+    }
+
+    /// Renders all Sass files with Tera before compiling to CSS
+    pub fn render_sass(&self, base_path: &Path) -> Result<()> {
+        let rendered_sass_dir = tempfile::tempdir()?;
+
+        let glob = Glob::new("*.{sass,scss}").expect("Invalid glob for sass").compile_matcher();
+        let sass_files = WalkDir::new(base_path)
+            .into_iter()
+            .filter_map(|e| e.ok())
+            .map(|e| e.into_path())
+            .filter(|e| glob.is_match(e));
+
+        let mut context = Context::new();
+        context.insert("config", &self.config.serialize(&self.config.default_language));
+
+        for path in sass_files {
+            let relative_path = path.strip_prefix(base_path).unwrap();
+            let template_name = format!("__zola_{}", relative_path.to_string_lossy());
+            let rendered = self.tera.render(&template_name, &context)?;
+            create_file(&rendered_sass_dir.path().join(relative_path), rendered)?;
+        }
+
+        sass::compile_sass(rendered_sass_dir.path(), &self.output_path)?;
 
         Ok(())
     }

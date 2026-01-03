@@ -8,7 +8,7 @@ use libs::once_cell::sync::Lazy;
 use libs::tera::{Context, Tera};
 
 use errors::{bail, Context as ErrorContext, Result};
-use utils::templates::rewrite_theme_paths;
+use utils::templates::{rewrite_sass_paths, rewrite_theme_paths};
 
 pub static ZOLA_TERA: Lazy<Tera> = Lazy::new(|| {
     let mut tera = Tera::default();
@@ -85,6 +85,15 @@ pub fn load_tera(path: &Path, config: &Config) -> Result<Tera> {
 
     if path.join("templates").join("robots.txt").exists() {
         tera.add_template_file(path.join("templates").join("robots.txt"), Some("robots.txt"))?;
+    }
+
+    if config.compile_sass && path.join("sass").exists() {
+        let sass_tpl_glob =
+            format!("{}/{}", path.to_string_lossy().replace('\\', "/"), "sass/**/*.{sass,scss}");
+        let mut tera_sass = Tera::parse(&sass_tpl_glob)
+            .context("Error parsing templates from the /sass directory")?;
+        rewrite_sass_paths(&mut tera_sass);
+        tera.extend(&tera_sass)?;
     }
 
     Ok(tera)

@@ -135,6 +135,16 @@ pub fn rewrite_theme_paths(tera_theme: &mut Tera, theme: &str) {
     tera_theme.templates.extend(new_templates);
 }
 
+pub fn rewrite_sass_paths(tera_sass: &mut Tera) {
+    let mut new_templates = HashMap::new();
+    for (key, template) in &tera_sass.templates {
+        let mut tpl = template.clone();
+        tpl.name = format!("__zola_sass/{}", key);
+        new_templates.insert(tpl.name.clone(), tpl);
+    }
+    tera_sass.templates = new_templates;
+}
+
 /// Checks for the presence of a given template. If none is found, also looks for a
 /// fallback in theme and default templates. Returns the path of the most specific
 /// template found, or none if none are present.
